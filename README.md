@@ -36,3 +36,9 @@ Simpy interaction
 │   simpy.Environment    │ ──► 4. Advances clock (env.now)
 │  (Layer 1 Core Engine) │ ──► 5. Wakes up ProductionProcess when event triggers
 └────────────────────────┘
+
+If we want to add a new controller function
+------------------------------------------------
+1) insert new controller class (LAYER 4)
+2) Change the standard status of the processing unit to active_by_default=False             = sleep mode
+3) Couple the controller to the main function eg. EmmerichDistillationController(env, trigger_node=network_nodes['Tank1_CrudeIso'], controlled_processes=[proc_em_dist])
