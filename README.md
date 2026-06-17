@@ -42,3 +42,15 @@ If we want to add a new controller function
 1) insert new controller class (LAYER 4)
 2) Change the standard status of the processing unit to active_by_default=False             = sleep mode
 3) Couple the controller to the main function eg. EmmerichDistillationController(env, trigger_node=network_nodes['Tank1_CrudeIso'], controlled_processes=[proc_em_dist])
+
+
+Main problem
+------------
+use of different flow rates (200 - 500)
+
+PBR produces until we reach the quarterly goal of 420 MT
+buffer tank is filled until 75% to start unloading towards Ertvelde
+
+
+
+
