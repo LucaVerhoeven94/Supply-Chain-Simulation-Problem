@@ -1,0 +1,107 @@
+Plaintext
+================================================================================
+SIMULATION FRAMEWORK: MULTI-LAYERED OBJECT-ORIENTED ARCHITECTURE
+================================================================================
+
+This document details the modular, node-based architecture designed for discrete 
+event supply chain and product flow simulations using SimPy and Python.
+
+--------------------------------------------------------------------------------
+ARCHITECTURAL OVERVIEW
+--------------------------------------------------------------------------------
+The framework moves away from monolithic scripts and hardcoded functions by 
+utilizing a "Directed Acyclic Graph / Network Flow" paradigm. Components are 
+decoupled into independent object classes divided into a 6-layer hierarchy. 
+Each layer has a single responsibility and builds upon the layers beneath it.
+
+                          +-----------------------------------+
+                          |  Layer 6: Configuration Context   |
+                          +-----------------------------------+
+                                            |
+                          +-----------------------------------+
+                          |    Layer 5: Telemetry Observer    |
+                          +-----------------------------------+
+                                            |
+                          +-----------------------------------+
+                          |     Layer 4: Control Logic        |
+                          +-----------------------------------+
+                                            |
+                          +-----------------------------------+
+                          |      Layer 3: Edges & Flows       |
+                          +-----------------------------------+
+                                            |
+                          +-----------------------------------+
+                          |      Layer 2: Nodes & Assets      |
+                          +-----------------------------------+
+                                            |
+                          +-----------------------------------+
+                          |    Layer 1: SimPy Foundation      |
+                          +-----------------------------------+
+
+--------------------------------------------------------------------------------
+DETAILED LAYER BREAKDOWN
+--------------------------------------------------------------------------------
+
+LAYER 1: THE FOUNDATION LAYER (SimPy Primitives)
+- Description: The runtime engine provided by the core SimPy library.
+- Components:  `simpy.Environment` and `simpy.Container`.
+- Responsibility: Handles the simulation clock (env.now), manages the event loop 
+  queue, and ensures that process steps execute at the exact microsecond 
+  required without time-slippage.
+
+LAYER 2: THE PHYSICAL NODE LAYER (Assets)
+- Description: The structural nodes of the supply chain network.
+- Component:   `StorageTank` Class.
+- Responsibility: Tracks state-specific variables (mass, density, max working 
+  capacity, free space available) at a distinct physical location. 
+- Design Principle: Nodes are anonymous and passive. A tank does not know where 
+  its material originates or where it is going; it only manages its internal 
+  volumetric limits (including the 95% safety working volume rule).
+
+LAYER 3: THE EDGE LAYER (Flows & Transformation)
+- Description: The dynamic lines connecting the physical nodes.
+- Components:  `ProductionProcess` and `TransportLink` Classes.
+- Responsibility: Governs the movement and physical transformation of material 
+  over time. 
+  * ProductionProcess transfers material continuously between a generic 
+    source_node and dest_node while calculating process yields.
+  * TransportLink handles discrete batch logistics (e.g., road truck cycles) 
+    and handles queueing/demurrage if a destination node is full.
+
+LAYER 4: THE CONTROL LAYER (Business Logic & Orchestration)
+- Description: The operational brain of the manufacturing layout.
+- Component:   `CampaignController` Class.
+- Responsibility: Monitors asset conditions in Layer 2 and dynamically toggles 
+  the active execution status of flow processes in Layer 3.
+- Design Principle: Separates manufacturing capability from scheduling policy. 
+  Campaign rules (e.g., triggering a chemical run when a buffer tank hits 95% 
+  capacity) can be modified without altering the underlying process code.
+
+LAYER 5: THE OBSERVER LAYER (Telemetry & Output)
+- Description: The data logging system operating parallel to the plant.
+- Component:   `TelemetryEngine` Class.
+- Responsibility: Interrogates the network nodes at a fixed interval (every 
+  simulation hour), captures inventory snapshots, and compiles data frames into 
+  an exportable CSV file.
+- Design Principle: Prevents telemetry code from polluting the core business 
+  logic of tanks and pipelines.
+
+LAYER 6: THE CONFIGURATION LAYER (The Pipeline Setup)
+- Description: The entry point block (`if __name__ == "__main__":`).
+- Responsibility: Defines the concrete simulation context. Instantiates specific 
+  tanks, declares physical constraints (m³, densities, flow rates), wires edges 
+  to nodes, attaches controllers, and executes the environment runtime.
+
+--------------------------------------------------------------------------------
+SUMMARY ANALOGY: THE BUCKET MODEL
+--------------------------------------------------------------------------------
+- Layer 1: Gravity and Time (The physical laws of the simulation).
+- Layer 2: The Buckets (Physical storage holding the inventory).
+- Layer 3: The Hoses (The pipelines and transport links moving fluid).
+- Layer 4: The Valve Operator (The scheduler opening and closing flows).
+- Layer 5: The Inspector (The clipboard holder taking hourly level readings).
+- Layer 6: The Factory Floor Blueprint (Deciding where to connect each hose).
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
