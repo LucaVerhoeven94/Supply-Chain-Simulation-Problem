@@ -21,3 +21,18 @@ Simpy
 simpy.environment = time-engine via env.now
 simpy.process (interactions)
 simpy.Container = declaration of resources via .get() and .put()
+
+Simpy interaction
+--------------------
+┌────────────────────────┐         1. Checks Levels          ┌──────────────────────┐
+│   ProductionProcess    │ ────────────────────────────────► │     StorageTank      │
+│  (Custom Flow Object)  │ ◄──────────────────────────────── │ (Layer 2 Asset Node) │
+└────────────────────────┘          2. Returns True          └──────────────────────┘
+            │
+            │ 3. Yields a Event Request
+            │    (e.g., env.timeout(1.0) or container.get())
+            ▼
+┌────────────────────────┐
+│   simpy.Environment    │ ──► 4. Advances clock (env.now)
+│  (Layer 1 Core Engine) │ ──► 5. Wakes up ProductionProcess when event triggers
+└────────────────────────┘
