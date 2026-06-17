@@ -210,7 +210,7 @@ class TelemetryEngine:
             # 1. Harvest Tank States (Nodes)
             for key, node in self.network.items():
                 state[f'Asset_{key}_Level_Tons'] = round(node.level, 2)
-                state[f'Asset_{key}_FreeSpace_Tons'] = round(node.free_space, 2)
+                """ state[f'Asset_{key}_FreeSpace_Tons'] = round(node.free_space, 2)"""
             
             # 2. Harvest Plant Process States (Edges)
             for proc in self.processes:
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     # Initialize process objects so we can group them for the telemetry tracker
     proc_reactor = ProductionProcess(
         env, name='Reactor', source_node=network_nodes['Tank0_RawProduct'], 
-        dest_node=network_nodes['Tank1_CrudeIso'], flow_rate=3.5, process_yield=0.90
+        dest_node=network_nodes['Tank1_CrudeIso'], flow_rate=0.42, process_yield=0.90
     )
     
     proc_em_dist = ProductionProcess(
@@ -282,6 +282,32 @@ if __name__ == "__main__":
     
     proc_ert_frac = ProductionProcess(
         env, name='Fractionated_Distillation', source_node=network_nodes['Tank4_ColdFrac'], 
+        dest_node=network_nodes['Tank6_Purified'], flow_rate=13.0, process_yield=0.96, active_by_default=False
+    )
+    
+    # Controllers
+    CampaignController(env, trigger_node=network_nodes['Tank3_Monomer_Ert'], controlled_processes=[proc_ert_camp])
+    DownstreamDistillationController(env, trigger_node=network_nodes['Tank4_ColdFrac'], controlled_processes=[proc_ert_frac])
+    EmmerichDistillationController(env, trigger_node=network_nodes['Tank1_CrudeIso'], controlled_processes=[proc_em_dist])
+    
+    # Compile lists of objects for Enhanced Logging Engine
+    all_production_lines = [proc_reactor, proc_em_dist, proc_ert_camp, proc_ert_frac]
+    all_logistics_links = [logistics_road]
+    
+    # Bind Enhanced Engine
+    telemetry = TelemetryEngine(env, network_nodes, all_production_lines, all_logistics_links)
+    
+    print("==========================================================")
+    print("Running Simulation Engine with Enhanced Logging Columns...")
+    print("==========================================================")
+    
+    env.run(until=2160) 
+    telemetry.export_to_csv('enhanced_supply_chain_logbook.csv')
+    
+    print("\nSimulation completed successfully.")
+    print("Comprehensive dataset exported to 'enhanced_supply_chain_logbook.csv'.")
+    print(f"Final Product Level: {network_nodes['Tank6_Purified'].level:.2f} Tons.")
+    print("==========================================================")
         dest_node=network_nodes['Tank6_Purified'], flow_rate=13.0, process_yield=0.96, active_by_default=False
     )
     
