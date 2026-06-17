@@ -1,0 +1,143 @@
+import simpy
+import pandas as pd
+
+# --- PARAMETERS & CONFIGURATIE ---
+SIM_HOURS = 2160  # 90 dagen * 24 uur (1 kwartaal)
+DENSITY = 0.9     # t/m³
+
+# Tank Capaciteiten (in tonnen, rekening houdend met 95% working volume en dichtheid)
+TANK_CAPACITIES = {
+    'Tank1_CrudeIso': 180 * 0.95 * DENSITY,  # Emmerich (Bestaand)
+    'Tank2_Monomer_Em': 60 * 0.95 * DENSITY, # Emmerich
+    'Tank3_Monomer_Ert': 360 * 0.95 * DENSITY, # Ertvelde (Kritiek!)
+    'Tank4_ColdFrac_Ert': 290 * 0.95 * DENSITY, # Ertvelde
+    'Tank6_Purified_Ert': 280 * 0.95 * DENSITY  # Ertvelde (Scenario B)
+}
+
+# Yields & Flow Rates (t/u)
+FLOW_RATES = {
+    'Monomer_Distillation': 2.5,
+    'Ertvelde_Campaign_Block': 2.5, # Gecombineerde Hydrogenation + Cold Frac block
+    'Fractionated_Distillation': 13.0
+}
+
+YIELDS = {
+    'Monomer_Distillation': 0.86,
+    'Ertvelde_Campaign_Block': 0.99 * 0.743, # Hydrogenation * Cold Fractionation
+    'Fractionated_Distillation': 0.96
+}
+
+# Logdata opslag voor Power BI of analyse
+logs = []
+
+def log_status(env, event_type, description, levels):
+    state = {
+        'Timestamp_Hours': env.now,
+        'Event_Type': event_type,
+        'Description': description
+    }
+    for tank, lvl in levels.items():
+        state[f'{tank}_Level_Tons'] = round(lvl.level, 2)
+        state[f'{tank}_Free_Space_Tons'] = round(lvl.capacity - lvl.level, 2)
+    logs.append(state)
+
+# --- SIMULATIE PROCESSEN ---
+
+def upstream_emmerich(env, t1, t2):
+    """Simuleert de continue upstream productie in Emmerich."""
+    # We nemen aan dat Tank 1 continu gevoed wordt en Monomer Distillation constant draait
+    while True:
+        # Monomer Distillation verbruikt uit Tank 1 en produceert naar Tank 2
+        consumed_t1 = FLOW_RATES['Monomer_Distillation']
+        produced_t2 = consumed_t1 * YIELDS['Monomer_Distillation']
+        
+        if t1.level >= consumed_t1 and (t2.capacity - t2.level) >= produced_t2:
+            yield t1.get(consumed_t1)
+            yield t2.put(produced_t2)
+        else:
+            # Bottleneck: Upstream stagneert door volle of lege tanks
+            log_status(env, 'BOTTLENECK', 'Upstream Emmerich blocked or starved', {
+                'Tank1': t1, 'Tank2': t2, 'Tank3': t3, 'Tank4': t4, 'Tank6': t6
+            })
+        yield env.timeout(1) # Elk uur
+
+def truck_logistics(env, t2_em, t3_ert):
+    """Regelt het transport van Emmerich naar Ertvelde."""
+    truck_id = 1
+    while True:
+        # Wacht tot er een volle vrachtwagen (24t) klaarzit in Emmerich
+        if t2_em.level >= 24:
+            yield t2_em.get(24)
+            log_status(env, 'LOGISTICS', f'Truck {truck_id} vertrekt uit Emmerich', {'Tank2_Monomer_Em': t2_em, 'Tank3_Monomer_Ert': t3_ert})
+            
+            # Transporttijd (bijv. 3 uur rijden)
+            yield env.timeout(3)
+            
+            # JIT Logica voor Tank 3: Wacht aan de poort als tank 3 te vol is
+            while (t3_ert.capacity - t3_ert.level) < 24:
+                yield env.timeout(0.5) # Wacht een half uur en check opnieuw (Demurrage)
+            
+            yield t3_ert.put(24)
+            log_status(env, 'LOGISTICS', f'Truck {truck_id} gelost in Ertvelde', {'Tank2_Monomer_Em': t2_em, 'Tank3_Monomer_Ert': t3_ert})
+            truck_id += 1
+        else:
+            yield env.timeout(1)
+
+def ertvelde_campaign(env, t3, t4, t6):
+    """Simuleert de kwartaalcampagne in Ertvelde."""
+    # De campagne start pas als Tank 3 zijn maximale strategische volume heeft bereikt (307.8 ton)
+    # OF als het uur 1500 is bereikt (als deadline)
+    while t3.level < (t3.capacity - 1):
+        yield env.timeout(1)
+        
+    log_status(env, 'CAMPAIGN', 'START van de Ertvelde Kwartaalcampagne!', {'Tank3_Monomer_Ert': t3, 'Tank4_ColdFrac_Ert': t4})
+    
+    # Campagne draait totdat Tank 3 leeg is én er geen trucks meer onderweg zijn (vereenvoudigd: tank 3 leeg)
+    while t3.level > 0:
+        rate_in = FLOW_RATES['Ertvelde_Campaign_Block']
+        output_t4 = rate_in * YIELDS['Ertvelde_Campaign_Block']
+        
+        if t3.level >= rate_in and (t4.capacity - t4.level) >= output_t4:
+            yield t3.get(rate_in)
+            yield t4.put(output_t4)
+            
+            # Direct doorsluizen naar finale distillatie (Scenario B) als er input is in Tank 4
+            rate_dist = min(FLOW_RATES['Fractionated_Distillation'], t4.level)
+            output_final = rate_dist * YIELDS['Fractionated_Distillation']
+            
+            if t4.level >= rate_dist and (t6.capacity - t6.level) >= output_final:
+                yield t4.get(rate_dist)
+                yield t6.put(output_final)
+        else:
+            yield env.timeout(1)
+            continue
+            
+        yield env.timeout(1)
+        
+    log_status(env, 'CAMPAIGN', 'EIND van de Ertvelde Kwartaalcampagne!', {'Tank3_Monomer_Ert': t3, 'Tank4_ColdFrac_Ert': t4, 'Tank6_Purified_Ert': t6})
+
+# --- SIMULATIE RUNNEN ---
+env = simpy.Environment()
+
+# Initialiseer de containers (Tanks) met startvoorraden
+t1 = simpy.Container(env, capacity=TANK_CAPACITIES['Tank1_CrudeIso'], init=TANK_CAPACITIES['Tank1_CrudeIso']*0.8)
+t2 = simpy.Container(env, capacity=TANK_CAPACITIES['Tank2_Monomer_Em'], init=0)
+t3 = simpy.Container(env, capacity=TANK_CAPACITIES['Tank3_Monomer_Ert'], init=0)
+t4 = simpy.Container(env, capacity=TANK_CAPACITIES['Tank4_ColdFrac_Ert'], init=0)
+t6 = simpy.Container(env, capacity=TANK_CAPACITIES['Tank6_Purified_Ert'], init=0)
+
+# Start processen
+env.process(upstream_emmerich(env, t1, t2))
+env.process(truck_logistics(env, t2, t3))
+env.process(ertvelde_campaign(env, t3, t4, t6))
+
+# Run
+env.run(until=SIM_HOURS)
+
+# --- DATA EXPORT & ANALYSE ---
+df_logs = pd.DataFrame(logs)
+df_logs.to_csv('realtime_supply_chain_output.csv', index=False)
+
+print("Simulatie succesvol afgerond! 'realtime_supply_chain_output.csv' is gegenereerd.")
+# Toon de eindsituatie
+print(f"Eindvoorraad Purified Isostearic Acid: {t6.level:.2f} ton (Target: 250 ton)")
